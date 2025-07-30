@@ -349,6 +349,10 @@ class CL3000App(ctk.CTk):
         if not self.viewing_graph and hasattr(self, 'channel_displays'):
             for display in self.channel_displays:
                 display.update_data(-9999.98, "STANDBY")
+        
+        # Reset button states properly
+        self.set_status("🟡 Idle", COLORS['warning'])
+        self.enable_start_button()
 
     def _on_logging_stop(self):
         self.set_status("Stopped", COLORS['warning'])
