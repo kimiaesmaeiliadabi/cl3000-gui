@@ -151,7 +151,7 @@ class CL3000Logger:
         self.log_interval = interval
         self.max_duration = duration
         CL3wrap.CL3IF_ClearStorageData(DEVICE_ID)
-        CL3wrap.CL3IF_ResetGroup(DEVICE_ID, 1)  # Zero Reset
+        # CL3wrap.CL3IF_ResetGroup(DEVICE_ID, 1)  # Zero Reset - Commented out to preserve manual zeroing
         filename = self.setup_csv()
         self.running = True
         self.thread = threading.Thread(target=self.log_loop)

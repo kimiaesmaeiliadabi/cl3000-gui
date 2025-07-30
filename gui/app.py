@@ -5,6 +5,9 @@ from ui_components import ChannelDisplay, ModernStatusCard
 from graph_widget import MultiChannelGraphWidget
 from data_manager import GraphDataManager
 from logger import CL3000Logger
+from tkinter import BooleanVar
+import CL3wrap
+from zeroing_page import ZeroingPage
 
 class CL3000App(ctk.CTk):
     def __init__(self, logger):
@@ -141,15 +144,30 @@ class CL3000App(ctk.CTk):
                                  text_color=COLORS['primary'])
         data_title.pack(pady=(20, 15))
 
+        # Horizontal button container
+        button_row = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        button_row.pack(pady=(0, 20))
+
         # View Graph Button
-        graph_button = ctk.CTkButton(self.right_frame, text="📊 View Multi-Channel Graph", 
+        graph_button = ctk.CTkButton(button_row, text="📊 View Multi-Channel Graph", 
                                     command=self.show_multi_channel_graph,
                                     height=45,
                                     font=ctk.CTkFont(size=16, weight="bold"),
                                     fg_color=COLORS['primary'],
                                     hover_color=COLORS['success'],
                                     text_color="white")
-        graph_button.pack(pady=(0, 20))
+        graph_button.pack(side="left", padx=10)
+
+        # Zero Channels Button
+        zeroing_btn = ctk.CTkButton(button_row, text="⚙️ Zero Channels", 
+                                    command=self.show_zeroing_page,
+                                    height=45,
+                                    font=ctk.CTkFont(size=16, weight="bold"),
+                                    fg_color=COLORS['warning'],
+                                    hover_color=COLORS['accent'],
+                                    text_color="black")
+        zeroing_btn.pack(side="left", padx=10)
+
 
         # Channels container
         self.channels_container = ctk.CTkFrame(self.right_frame, fg_color="transparent")
@@ -203,6 +221,28 @@ class CL3000App(ctk.CTk):
         self.viewing_graph = False
         self.current_graph_widget = None
         self.setup_channel_grid()
+
+    def show_zeroing_page(self):
+        """Switch to zeroing page view"""
+        print("Switching to zeroing page")
+
+        # Clear right side
+        for widget in self.right_frame.winfo_children():
+            widget.destroy()
+
+        try:
+            # Create and pack zeroing page - pass the existing logger instance and channel count
+            from config import DEVICE_ID
+            zero_page = ZeroingPage(self.right_frame, DEVICE_ID, go_back_callback=self.show_channel_grid, 
+                                   logger=self.logger, num_channels=self.out_channels)
+            zero_page.pack(fill="both", expand=True)
+            print("Zeroing page created and packed successfully")
+        except Exception as e:
+            print(f"Error creating zeroing page: {e}")
+            # Fallback: show error message
+            error_label = ctk.CTkLabel(self.right_frame, text=f"Error loading zeroing page: {str(e)}", 
+                                     text_color=COLORS['danger'])
+            error_label.pack(expand=True)
 
     def update_channel_count(self, value):
         self.out_channels = int(value)
