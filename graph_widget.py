@@ -3,6 +3,7 @@ from config import COLORS
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import numpy as np
 
 class MultiChannelGraphWidget(ctk.CTkFrame):
     def __init__(self, parent, max_channels, graph_data_manager, app_ref=None):
@@ -14,6 +15,7 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         self.app_ref = app_ref
         self.auto_update_enabled = True
         self.after_id = None
+        self._update_in_progress = False  # Prevent concurrent updates
         
         # Channel colors (8 distinct colors)
         self.channel_colors = [
@@ -74,9 +76,13 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         
         for i in range(1, self.max_channels + 1):
             color = self.channel_colors[(i-1) % len(self.channel_colors)]
+            # Fixed: Use a proper closure to capture the channel number
+            def make_toggle_command(channel_num):
+                return lambda: self.toggle_channel(channel_num)
+            
             checkbox = ctk.CTkCheckBox(checkbox_frame, 
                                       text=f"OUT{i:02d}",
-                                      command=lambda ch=i: self.toggle_channel(ch),
+                                      command=make_toggle_command(i),
                                       font=ctk.CTkFont(size=12, weight="bold"),
                                       text_color=color,
                                       fg_color=color,
@@ -85,6 +91,24 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
             checkbox.pack(side="left", padx=8)
             checkbox.select()  # All channels selected by default
             self.channel_checkboxes[i] = checkbox
+        
+        # Add Select All / Deselect All buttons
+        button_frame = ctk.CTkFrame(selection_frame, fg_color="transparent")
+        button_frame.pack(side="left", padx=(15, 0))
+        
+        select_all_btn = ctk.CTkButton(button_frame, text="Select All", width=80, height=25,
+                                      command=self.select_all_channels,
+                                      font=ctk.CTkFont(size=10),
+                                      fg_color=COLORS['success'],
+                                      hover_color=COLORS['primary'])
+        select_all_btn.pack(side="top", pady=(0, 2))
+        
+        deselect_all_btn = ctk.CTkButton(button_frame, text="Deselect All", width=80, height=25,
+                                        command=self.deselect_all_channels,
+                                        font=ctk.CTkFont(size=10),
+                                        fg_color=COLORS['danger'],
+                                        hover_color="#D32F2F")
+        deselect_all_btn.pack(side="top")
         
         # Control buttons frame
         controls_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -193,6 +217,48 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         # Start auto-update timer immediately
         self.start_auto_update()
     
+    def recalculate_first_data_time(self):
+        """Recalculate first_data_time based on currently selected channels"""
+        print("Recalculating first_data_time...")
+        first_times = []
+        
+        for channel_num in range(1, self.max_channels + 1):
+            if self.selected_channels.get(channel_num, False):
+                timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
+                valid_times = [t for t, v in zip(timestamps, values) if v is not None and v != -9999.98 and str(v).lower() != 'nan']
+                if valid_times:
+                    first_times.append(valid_times[0])
+                    print(f"Channel {channel_num} first time: {valid_times[0]}")
+        
+        if first_times:
+            old_first_time = self.first_data_time
+            self.first_data_time = min(first_times)
+            print(f"Updated first_data_time from {old_first_time} to {self.first_data_time}")
+        else:
+            print("No valid times found for selected channels")
+    
+    def select_all_channels(self):
+        """Select all channel checkboxes"""
+        print("Selecting all channels")
+        for i in range(1, self.max_channels + 1):
+            if i in self.channel_checkboxes:
+                self.channel_checkboxes[i].select()
+                self.selected_channels[i] = True
+        self.update_legend()
+        # Don't call update_graph here to avoid interfering with auto-update
+        print("All channels selected")
+    
+    def deselect_all_channels(self):
+        """Deselect all channel checkboxes"""
+        print("Deselecting all channels")
+        for i in range(1, self.max_channels + 1):
+            if i in self.channel_checkboxes:
+                self.channel_checkboxes[i].deselect()
+                self.selected_channels[i] = False
+        self.update_legend()
+        # Don't call update_graph here to avoid interfering with auto-update
+        print("All channels deselected")
+    
     def update_channel_count(self, new_count):
         """Update the widget when channel count changes"""
         old_count = self.max_channels
@@ -216,14 +282,31 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                 self.selected_channels[i] = True
         
         self.update_legend()
-        self.update_graph()
+        print(f"Channel count updated to {new_count}")
         
     def toggle_channel(self, channel_num):
         """Toggle visibility of a specific channel"""
-        self.selected_channels[channel_num] = not self.selected_channels[channel_num]
-        print(f"Channel {channel_num} {'enabled' if self.selected_channels[channel_num] else 'disabled'}")
+        print(f"DEBUG: toggle_channel called for channel {channel_num}")
+        
+        # Get the actual checkbox state
+        if channel_num in self.channel_checkboxes:
+            checkbox_state = self.channel_checkboxes[channel_num].get()
+            self.selected_channels[channel_num] = bool(checkbox_state)
+            print(f"Channel {channel_num} {'enabled' if self.selected_channels[channel_num] else 'disabled'}")
+        else:
+            # Fallback: toggle the stored state
+            self.selected_channels[channel_num] = not self.selected_channels[channel_num]
+            print(f"Channel {channel_num} {'enabled' if self.selected_channels[channel_num] else 'disabled'} (fallback)")
+        
+        # Special handling for OUT1 - if it's being disabled, recalculate first_data_time
+        if channel_num == 1 and not self.selected_channels[channel_num]:
+            print(f"OUT1 disabled - recalculating first_data_time")
+            self.recalculate_first_data_time()
+        
         self.update_legend()
+        # Force an immediate graph update to show the change
         self.update_graph()
+        print(f"Channel {channel_num} toggle complete")
         
     def update_legend(self):
         """Update the legend to show only selected channels"""
@@ -240,7 +323,9 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                           facecolor='#2D2D2D', edgecolor=COLORS['text'],
                           framealpha=0.9)
         else:
-            self.ax.legend().set_visible(False)
+            legend = self.ax.legend()
+            if legend:
+                legend.set_visible(False)
         
     def toggle_auto_update(self):
         """Toggle auto-update mode"""
@@ -251,36 +336,52 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
             print("Auto-update ENABLED")
         else:
             self.auto_update_button.configure(text="⏸️ Auto-Update OFF", fg_color=COLORS['warning'])
-            if self.after_id:
-                self.after_cancel(self.after_id)
-                self.after_id = None
+            self.stop_auto_update()
             print("Auto-update DISABLED")
     
     def start_auto_update(self):
         """Start or restart the auto-update timer"""
-        if self.auto_update_enabled:
-            # Cancel existing timer if any
-            if self.after_id:
-                self.after_cancel(self.after_id)
-                
-            # Start new timer
-            self.after_id = self.after(500, self.update_graph_with_timer)  # Update every 500ms for faster response
-            print("Auto-update timer started")
+        if not self.auto_update_enabled:
+            return
+            
+        # Cancel existing timer if any
+        self.stop_auto_update()
+        
+        # Start new timer
+        self.after_id = self.after(500, self.update_graph_with_timer)
+        print(f"Auto-update timer started with ID: {self.after_id}")
+    
+    def stop_auto_update(self):
+        """Stop the auto-update timer"""
+        if self.after_id:
+            self.after_cancel(self.after_id)
+            self.after_id = None
+            print("Auto-update timer stopped")
     
     def update_graph_with_timer(self):
         """Update graph and schedule next update"""
-        if self.auto_update_enabled:
+        if not self.auto_update_enabled or self._update_in_progress:
+            return
+            
+        try:
+            self._update_in_progress = True
             self.update_graph()
-            # Schedule next update
+        except Exception as e:
+            print(f"Error in update_graph_with_timer: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self._update_in_progress = False
+        
+        # Schedule next update if auto-update is still enabled
+        if self.auto_update_enabled:
             self.after_id = self.after(500, self.update_graph_with_timer)
     
     def go_back(self):
         """Return to channel grid view"""
         # Cancel auto-update timer
-        if self.after_id:
-            self.after_cancel(self.after_id)
-            self.after_id = None
-            
+        self.stop_auto_update()
+        
         if self.app_ref:
             self.app_ref.show_channel_grid()
     
@@ -309,9 +410,9 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         # Clear all lines and scatter plots
         for i in range(1, self.max_channels + 1):
             self.lines[i].set_data([], [])
-            self.go_points[i].set_offsets([])
-            self.hi_points[i].set_offsets([])
-            self.lo_points[i].set_offsets([])
+            self.go_points[i].set_offsets(np.empty((0, 2)))
+            self.hi_points[i].set_offsets(np.empty((0, 2)))
+            self.lo_points[i].set_offsets(np.empty((0, 2)))
         
         # Reset axis limits
         self.ax.set_xlim(0, 10)
@@ -427,9 +528,7 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         if self.auto_update_enabled:
             self.auto_update_enabled = False
             self.auto_update_button.configure(text="⏸️ Auto-Update OFF", fg_color=COLORS['warning'])
-            if self.after_id:
-                self.after_cancel(self.after_id)
-                self.after_id = None
+            self.stop_auto_update()
             print("Auto-update disabled due to manual interaction")
     
     def on_scroll(self, event):
@@ -517,24 +616,53 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
     
     def update_graph(self):
         """Update the graph with new data from all channels"""
+        if self._update_in_progress:  # Prevent concurrent updates
+            return
+            
         try:
             any_data_updated = False
             data_points_found = 0
+            visible_channels = 0
+
+            # Get list of selected channels for debugging
+            selected_list = [i for i in range(1, self.max_channels + 1) if self.selected_channels.get(i, False)]
             
+            # Always recalculate first_data_time based on currently selected channels
+            # This ensures we don't depend on OUT1 or any specific channel
+            first_times = []
+            for channel_num in selected_list:
+                timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
+                valid_times = [t for t, v in zip(timestamps, values) if v is not None and v != -9999.98 and str(v).lower() != 'nan']
+                if valid_times:
+                    first_times.append(valid_times[0])
+            
+            # Update first_data_time if we have valid selected channels
+            if first_times:
+                new_first_time = min(first_times)
+                if self.first_data_time != new_first_time:
+                    self.first_data_time = new_first_time
+                    print(f"Updated first_data_time to: {self.first_data_time}")
+
             for channel_num in range(1, self.max_channels + 1):
                 if not self.selected_channels.get(channel_num, False):
-                    # Hide channel if not selected
+                    # Hide channel if not selected - make sure it's completely hidden
                     self.lines[channel_num].set_data([], [])
-                    self.go_points[channel_num].set_offsets([])
-                    self.hi_points[channel_num].set_offsets([])
-                    self.lo_points[channel_num].set_offsets([])
+                    self.go_points[channel_num].set_offsets(np.empty((0, 2)))
+                    self.hi_points[channel_num].set_offsets(np.empty((0, 2)))
+                    self.lo_points[channel_num].set_offsets(np.empty((0, 2)))
+                    # Make sure the line is not visible
+                    self.lines[channel_num].set_visible(False)
+                    any_data_updated = True
                     continue
-                
+
+                # Make sure the line is visible for selected channels
+                self.lines[channel_num].set_visible(True)
+                visible_channels += 1
                 timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
-                
+
                 if not timestamps or not values:
                     continue
-                
+
                 # Filter valid data more carefully
                 valid_data = []
                 for t, v, j in zip(timestamps, values, judges):
@@ -544,57 +672,67 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                             valid_data.append((t, float_val, j))
                         except (ValueError, TypeError):
                             continue
-                
+
                 if not valid_data:
                     continue
-                
+
                 plot_times, plot_values, plot_judges = zip(*valid_data)
                 data_points_found += len(plot_values)
-                
-                # Set first data time reference
+
+                # Use the global first_data_time that's based on selected channels
                 if self.first_data_time is None:
-                    self.first_data_time = plot_times[0]
-                    print(f"First data time set to: {self.first_data_time}")
-                
+                    continue
+
                 # Convert to relative times
                 try:
                     relative_times = [(t - self.first_data_time).total_seconds() for t in plot_times]
-                    # Handle negative times
                     if relative_times and min(relative_times) < 0:
                         time_offset = abs(min(relative_times))
                         relative_times = [t + time_offset for t in relative_times]
                 except Exception as e:
                     print(f"Error calculating relative times for channel {channel_num}: {e}")
                     continue
-                
-                # Update main line
-                self.lines[channel_num].set_data(relative_times, plot_values)
-                
+
+                # Update main line with smoothing if enough points
+                if len(relative_times) > 3:
+                    try:
+                        from scipy.interpolate import make_interp_spline
+                        import numpy as np
+                        xnew = np.linspace(min(relative_times), max(relative_times), 300)
+                        spl = make_interp_spline(relative_times, plot_values, k=3)
+                        y_smooth = spl(xnew)
+                        self.lines[channel_num].set_data(xnew, y_smooth)
+                    except:
+                        # Fallback to non-smoothed if scipy is not available
+                        self.lines[channel_num].set_data(relative_times, plot_values)
+                else:
+                    self.lines[channel_num].set_data(relative_times, plot_values)
+
                 # Update judge markers
                 try:
                     go_data = [(rt, v) for rt, v, j in zip(relative_times, plot_values, plot_judges) if j == "GO"]
                     hi_data = [(rt, v) for rt, v, j in zip(relative_times, plot_values, plot_judges) if j == "HI"]
                     lo_data = [(rt, v) for rt, v, j in zip(relative_times, plot_values, plot_judges) if j == "LO"]
-                    
-                    self.go_points[channel_num].set_offsets(list(zip(*go_data)) if go_data else [])
-                    self.hi_points[channel_num].set_offsets(list(zip(*hi_data)) if hi_data else [])
-                    self.lo_points[channel_num].set_offsets(list(zip(*lo_data)) if lo_data else [])
+
+                    self.go_points[channel_num].set_offsets(list(zip(*go_data)) if go_data else np.empty((0, 2)))
+                    self.hi_points[channel_num].set_offsets(list(zip(*hi_data)) if hi_data else np.empty((0, 2)))
+                    self.lo_points[channel_num].set_offsets(list(zip(*lo_data)) if lo_data else np.empty((0, 2)))
                 except Exception as e:
                     print(f"Error updating judge markers for channel {channel_num}: {e}")
-                
+
                 any_data_updated = True
-            
-            # Auto-fit if enabled and data was updated
-            if self.auto_update_enabled and any_data_updated:
-                self.auto_fit()
-            else:
-                self.canvas.draw()
-            
+
+            # Always redraw the canvas when data is processed
             if any_data_updated:
-                print(f"Multi-channel graph updated successfully - {data_points_found} total data points")
-            elif data_points_found == 0:
-                print("No valid data points found for any channel")
-            
+                if self.auto_update_enabled and visible_channels > 0 and data_points_found > 0:
+                    self.auto_fit()
+                else:
+                    self.canvas.draw()
+
+            # Print status only occasionally to reduce console spam
+            if visible_channels > 0 and data_points_found > 0:
+                print(f"Graph updated: {data_points_found} points across {visible_channels} channels (selected: {selected_list})")
+
         except Exception as e:
             print(f"Error in update_graph: {e}")
             import traceback

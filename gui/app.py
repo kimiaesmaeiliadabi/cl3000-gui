@@ -127,8 +127,8 @@ class CL3000App(ctk.CTk):
         self.runtime_card = ModernStatusCard(status_cards_frame, "Elapsed Time", "00:00:00", "⏱️")
         self.runtime_card.pack(pady=5)
 
-        # Right Side (Live Channel Data or Graph) - Now gets full right side
-        self.right_frame = ctk.CTkFrame(self.content_frame, corner_radius=15, fg_color=COLORS['dark'])
+        # Right Side (Live Channel Data or Graph) - Changed from COLORS['dark'] to transparent
+        self.right_frame = ctk.CTkFrame(self.content_frame, corner_radius=15, fg_color="transparent")
         self.right_frame.pack(side="right", fill="both", expand=True)
 
         # Initialize with channel grid view
@@ -139,13 +139,17 @@ class CL3000App(ctk.CTk):
         for widget in self.right_frame.winfo_children():
             widget.destroy()
             
-        data_title = ctk.CTkLabel(self.right_frame, text="🔴 Live Channel Data", 
+        # Create a container with card background for the grid view only
+        grid_container = ctk.CTkFrame(self.right_frame, corner_radius=15, fg_color=COLORS['card'])
+        grid_container.pack(fill="both", expand=True)
+            
+        data_title = ctk.CTkLabel(grid_container, text="🔴 Live Channel Data", 
                                  font=ctk.CTkFont(size=18, weight="bold"),
                                  text_color=COLORS['primary'])
         data_title.pack(pady=(20, 15))
 
         # Horizontal button container
-        button_row = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        button_row = ctk.CTkFrame(grid_container, fg_color="transparent")
         button_row.pack(pady=(0, 20))
 
         # View Graph Button
@@ -168,9 +172,8 @@ class CL3000App(ctk.CTk):
                                     text_color="black")
         zeroing_btn.pack(side="left", padx=10)
 
-
         # Channels container
-        self.channels_container = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        self.channels_container = ctk.CTkFrame(grid_container, fg_color="transparent")
         self.channels_container.pack(fill="both", expand=True, padx=25, pady=(0, 20))
 
         self.update_channel_displays()
@@ -200,7 +203,7 @@ class CL3000App(ctk.CTk):
         for widget in self.right_frame.winfo_children():
             widget.destroy()
             
-        # Create multi-channel graph widget
+        # Create multi-channel graph widget directly in right_frame (no dark background)
         self.current_graph_widget = MultiChannelGraphWidget(self.right_frame, self.out_channels, self.graph_data_manager, self)
         
         # Set start time if logging is active
