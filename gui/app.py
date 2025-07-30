@@ -2,7 +2,7 @@ import customtkinter as ctk
 from datetime import datetime
 from config import COLORS
 from ui_components import ChannelDisplay, ModernStatusCard
-from graph_widget import LiveGraphWidget
+from graph_widget import MultiChannelGraphWidget
 from data_manager import GraphDataManager
 from logger import CL3000Logger
 
@@ -21,7 +21,7 @@ class CL3000App(ctk.CTk):
         self.graph_data_manager = GraphDataManager()
         self.current_graph_widget = None
         self.viewing_graph = False
-        self.logging_start_time = None  # Add this line
+        self.logging_start_time = None
         
         self.setup_ui()     
 
@@ -38,7 +38,7 @@ class CL3000App(ctk.CTk):
 
         # Main Content Area
         self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True, pady=(0, 20))
+        self.content_frame.pack(fill="both", expand=True)
 
         # Left Side (Control Panel)
         left_frame = ctk.CTkFrame(self.content_frame, corner_radius=15, fg_color=COLORS['card'], width=400)
@@ -108,35 +108,28 @@ class CL3000App(ctk.CTk):
                                         state="disabled")
         self.stop_button.pack(fill="x")
 
-        # Right Side (Live Channel Data or Graph)
+        # Add some spacing before status cards
+        ctk.CTkLabel(input_frame, text="", height=20).pack()
+
+        # Status cards directly in the control panel
+        status_cards_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
+        status_cards_frame.pack(fill="x", pady=(10, 0))
+
+        self.status_card = ModernStatusCard(status_cards_frame, "System Status", "🟡 Idle", "🔧")
+        self.status_card.pack(pady=5)
+
+        self.samples_card = ModernStatusCard(status_cards_frame, "Data Points", "0", "📊")
+        self.samples_card.pack(pady=5)
+
+        self.runtime_card = ModernStatusCard(status_cards_frame, "Elapsed Time", "00:00:00", "⏱️")
+        self.runtime_card.pack(pady=5)
+
+        # Right Side (Live Channel Data or Graph) - Now gets full right side
         self.right_frame = ctk.CTkFrame(self.content_frame, corner_radius=15, fg_color=COLORS['dark'])
         self.right_frame.pack(side="right", fill="both", expand=True)
 
         # Initialize with channel grid view
         self.setup_channel_grid()
-
-        # Bottom Status Bar (Horizontal)
-        status_frame = ctk.CTkFrame(self, corner_radius=15, fg_color=("gray10", "gray5"), height=100)
-        status_frame.pack(fill="x", pady=(0, 0))
-        status_frame.pack_propagate(False)
-
-        status_title = ctk.CTkLabel(status_frame, text="📈 Live Status", 
-                                   font=ctk.CTkFont(size=16, weight="bold"),
-                                   text_color=COLORS['primary'])
-        status_title.pack(pady=(12, 8))
-
-        # Horizontal status cards container - centered
-        status_cards_frame = ctk.CTkFrame(status_frame, fg_color="transparent")
-        status_cards_frame.pack(expand=True, pady=(0, 12))
-
-        self.status_card = ModernStatusCard(status_cards_frame, "System Status", "🟡 Idle", "🔧")
-        self.status_card.pack(side="left", padx=10)
-
-        self.samples_card = ModernStatusCard(status_cards_frame, "Data Points", "0", "📊")
-        self.samples_card.pack(side="left", padx=10)
-
-        self.runtime_card = ModernStatusCard(status_cards_frame, "Elapsed Time", "00:00:00", "⏱️")
-        self.runtime_card.pack(side="left", padx=10)
 
     def setup_channel_grid(self):
         # Clear existing content
@@ -147,6 +140,16 @@ class CL3000App(ctk.CTk):
                                  font=ctk.CTkFont(size=18, weight="bold"),
                                  text_color=COLORS['primary'])
         data_title.pack(pady=(20, 15))
+
+        # View Graph Button
+        graph_button = ctk.CTkButton(self.right_frame, text="📊 View Multi-Channel Graph", 
+                                    command=self.show_multi_channel_graph,
+                                    height=45,
+                                    font=ctk.CTkFont(size=16, weight="bold"),
+                                    fg_color=COLORS['primary'],
+                                    hover_color=COLORS['success'],
+                                    text_color="white")
+        graph_button.pack(pady=(0, 20))
 
         # Channels container
         self.channels_container = ctk.CTkFrame(self.right_frame, fg_color="transparent")
@@ -161,7 +164,8 @@ class CL3000App(ctk.CTk):
         
         rows = (self.out_channels + 3) // 4
         for i in range(self.out_channels):
-            display = ChannelDisplay(self.channels_container, i + 1, self.show_channel_graph)
+            # Pass None instead of click handler to disable clicking
+            display = ChannelDisplay(self.channels_container, i + 1, on_click=None)
             display.grid(row=i // 4, column=i % 4, padx=15, pady=15, sticky="nsew")
             self.channel_displays.append(display)
         
@@ -170,16 +174,16 @@ class CL3000App(ctk.CTk):
         for i in range(4):
             self.channels_container.grid_columnconfigure(i, weight=1)
 
-    def show_channel_graph(self, channel_num):
-        """Switch to graph view for the specified channel"""
-        print(f"Switching to graph view for channel {channel_num}")  # Debug
+    def show_multi_channel_graph(self):
+        """Switch to multi-channel graph view"""
+        print("Switching to multi-channel graph view")
         
         # Clear existing content
         for widget in self.right_frame.winfo_children():
             widget.destroy()
             
-        # Create graph widget
-        self.current_graph_widget = LiveGraphWidget(self.right_frame, channel_num, self.graph_data_manager, self)
+        # Create multi-channel graph widget
+        self.current_graph_widget = MultiChannelGraphWidget(self.right_frame, self.out_channels, self.graph_data_manager, self)
         
         # Set start time if logging is active
         if hasattr(self, 'logging_start_time') and self.logging_start_time:
@@ -190,13 +194,12 @@ class CL3000App(ctk.CTk):
         self.current_graph_widget.update_graph()
 
         self.viewing_graph = True
-        self.current_channel = channel_num
         
-        print(f"Graph view active for channel {channel_num}")  # Debug
+        print("Multi-channel graph view active")
         
     def show_channel_grid(self):
         """Switch back to channel grid view"""
-        print("Switching back to grid view")  # Debug
+        print("Switching back to grid view")
         self.viewing_graph = False
         self.current_graph_widget = None
         self.setup_channel_grid()
@@ -205,6 +208,9 @@ class CL3000App(ctk.CTk):
         self.out_channels = int(value)
         if not self.viewing_graph:
             self.update_channel_displays()
+        elif self.current_graph_widget:
+            # Update the graph widget with new channel count
+            self.current_graph_widget.update_channel_count(self.out_channels)
         
         # Initialize graph data for all channels
         for i in range(1, self.out_channels + 1):
@@ -227,7 +233,7 @@ class CL3000App(ctk.CTk):
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def update_display(self, row, timestamp, samples, runtime):
-        print(f"Update display called - viewing_graph: {self.viewing_graph}")  # Debug
+        print(f"Update display called - viewing_graph: {self.viewing_graph}")
         
         self.samples_card.update_value(f"{samples:,}")
         self.runtime_card.update_value(self.format_runtime(runtime))
@@ -243,25 +249,20 @@ class CL3000App(ctk.CTk):
         
         # Update channel displays if in grid view
         if not self.viewing_graph and hasattr(self, 'channel_displays'):
-            print("Updating channel displays")  # Debug
+            print("Updating channel displays")
             for i, display in enumerate(self.channel_displays):
                 if i < len(self.channel_displays):
                     value = row[1 + i * 2]
                     judge = row[2 + i * 2]
                     display.update_data(value, judge)
         
-        # Update current graph if viewing one
-        elif self.viewing_graph and hasattr(self, 'current_channel') and self.current_graph_widget:
-            print(f"Updating graph for channel {self.current_channel}")  # Debug
-            channel_index = self.current_channel - 1
-            if channel_index < self.out_channels:
-                value = row[1 + channel_index * 2]
-                judge = row[2 + channel_index * 2]
-                print(f"Graph update - value: {value}, judge: {judge}")  # Debug
-                try:
-                    self.current_graph_widget.update_graph(value, judge)
-                except Exception as e:
-                    print(f"Error updating graph: {e}")  # Debug
+        # Update multi-channel graph if viewing it
+        elif self.viewing_graph and self.current_graph_widget:
+            print("Updating multi-channel graph")
+            try:
+                self.current_graph_widget.update_graph()
+            except Exception as e:
+                print(f"Error updating graph: {e}")
 
     def start_logging(self):
         try:
@@ -278,6 +279,10 @@ class CL3000App(ctk.CTk):
 
         # Clear existing graph data
         self.graph_data_manager.clear_all()
+        
+        # Clear graph if viewing it
+        if self.viewing_graph and self.current_graph_widget:
+            self.current_graph_widget.clear_graph()
         
         # Record logging start time
         self.logging_start_time = datetime.now()
