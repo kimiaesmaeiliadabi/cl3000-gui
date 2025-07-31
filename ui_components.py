@@ -65,6 +65,7 @@ class ChannelDisplay(ctk.CTkFrame):
             "HI": (COLORS['danger'], "white"), 
             "LO": (COLORS['danger'], "white"),
             "STANDBY": (COLORS['warning'], "white"),
+            "IDLE": ("gray50", "white"),
             "??": ("gray50", "white")
         }
 
@@ -74,35 +75,35 @@ class ChannelDisplay(ctk.CTkFrame):
 
 class ModernStatusCard(ctk.CTkFrame):
     def __init__(self, parent, title, value="--", icon="📊"):
-        super().__init__(parent, corner_radius=16, fg_color=COLORS['card'], 
+        super().__init__(parent, corner_radius=12, fg_color=COLORS['card'], 
                          border_width=1, border_color=("gray40", "gray30"))
-        self.configure(height=50, width=280)  # Reduced width slightly to fit better
+        self.configure(height=40, width=280)  # Reduced height from 50 to 40
 
         # Content container
         content = ctk.CTkFrame(self, fg_color="transparent")
-        content.pack(expand=True, fill="both", padx=12, pady=8)  # Reduced padding
+        content.pack(expand=True, fill="both", padx=10, pady=6)  # Reduced padding
 
         # Left side — Icon + Title
         left_frame = ctk.CTkFrame(content, fg_color="transparent")
         left_frame.pack(side="left")
 
         icon_label = ctk.CTkLabel(left_frame, text=icon, 
-                                  font=ctk.CTkFont(size=14),  # Slightly smaller icon
+                                  font=ctk.CTkFont(size=12),  # Smaller icon
                                   text_color=COLORS['primary'])
-        icon_label.pack(side="left", padx=(0, 5))
+        icon_label.pack(side="left", padx=(0, 4))
 
         self.title_label = ctk.CTkLabel(left_frame, text=title, 
-                                        font=ctk.CTkFont(size=12),  # Slightly smaller text
+                                        font=ctk.CTkFont(size=11),  # Smaller text
                                         text_color=("gray70", "gray60"))
         self.title_label.pack(side="left")
 
         # Middle separator — THIN GREEN BAR
-        separator = ctk.CTkFrame(content, width=2, height=20, fg_color=COLORS['primary'])
-        separator.pack(side="left", padx=8, pady=4)  # Reduced padding
+        separator = ctk.CTkFrame(content, width=2, height=16, fg_color=COLORS['primary'])
+        separator.pack(side="left", padx=6, pady=2)  # Reduced padding
 
         # Right side — Value
         self.value_label = ctk.CTkLabel(content, text=value, 
-                                        font=ctk.CTkFont(size=13, weight="bold"),  # Slightly smaller
+                                        font=ctk.CTkFont(size=12, weight="bold"),  # Smaller
                                         text_color=COLORS['text'])
         self.value_label.pack(side="left")
 

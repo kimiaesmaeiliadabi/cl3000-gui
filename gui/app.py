@@ -3,7 +3,7 @@ from datetime import datetime
 from config import COLORS
 from ui_components import ChannelDisplay, ModernStatusCard
 from graph_widget import MultiChannelGraphWidget
-from data_manager import GraphDataManager
+from data_manager import GraphDataManager, LiveDataManager
 from logger import CL3000Logger
 from tkinter import BooleanVar
 import CL3wrap
@@ -22,11 +22,21 @@ class CL3000App(ctk.CTk):
         self.channel_displays = []
         self.out_channels = 6
         self.graph_data_manager = GraphDataManager()
+        self.live_data_manager = LiveDataManager(num_channels=self.out_channels)
         self.current_graph_widget = None
         self.viewing_graph = False
         self.logging_start_time = None
         
-        self.setup_ui()     
+        # Set up live data manager callbacks
+        self.live_data_manager.set_callbacks(
+            data_update_callback=self._on_live_data_update,
+            connection_change_callback=self._on_connection_change
+        )
+        
+        self.setup_ui()
+        
+        # Start live data reading immediately
+        self.live_data_manager.start_live_reading()
 
     def setup_ui(self):
         # Header Frame
@@ -93,15 +103,21 @@ class CL3000App(ctk.CTk):
         # Buttons
         button_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
         button_frame.pack(pady=(15, 0))
-        self.start_button = ctk.CTkButton(button_frame, text="▶ START LOGGING", 
+        
+        # Create a horizontal frame for the buttons
+        button_row = ctk.CTkFrame(button_frame, fg_color="transparent")
+        button_row.pack(fill="x")
+        
+        self.start_button = ctk.CTkButton(button_row, text="▶ START LOGGING", 
                                          command=self.start_logging,
                                          height=45,
                                          font=ctk.CTkFont(size=15, weight="bold"),
                                          fg_color=COLORS['success'],
                                          hover_color=COLORS['primary'],
                                          text_color="white")
-        self.start_button.pack(fill="x", pady=(0, 10))
-        self.stop_button = ctk.CTkButton(button_frame, text="  ⏹ STOP LOGGING  ", 
+        self.start_button.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        
+        self.stop_button = ctk.CTkButton(button_row, text="⏹ STOP LOGGING", 
                                         command=self.stop_logging,
                                         height=45,
                                         font=ctk.CTkFont(size=15, weight="bold"),
@@ -109,23 +125,26 @@ class CL3000App(ctk.CTk):
                                         hover_color="#D32F2F",
                                         text_color="white",
                                         state="disabled")
-        self.stop_button.pack(fill="x")
+        self.stop_button.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
         # Add some spacing before status cards
-        ctk.CTkLabel(input_frame, text="", height=20).pack()
+        ctk.CTkLabel(input_frame, text="", height=15).pack()
 
-        # Status cards directly in the control panel
+        # Status cards directly in the control panel - make them more compact
         status_cards_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
-        status_cards_frame.pack(fill="x", pady=(10, 0))
+        status_cards_frame.pack(fill="x", pady=(5, 0))
 
-        self.status_card = ModernStatusCard(status_cards_frame, "System Status", "🟡 Idle", "🔧")
-        self.status_card.pack(pady=5)
+        self.status_card = ModernStatusCard(status_cards_frame, "Logging Status", "🟡 IDLE", "📝")
+        self.status_card.pack(pady=3)
+
+        self.connection_card = ModernStatusCard(status_cards_frame, "Device Status", "🔴 Disconnected", "🔌")
+        self.connection_card.pack(pady=3)
 
         self.samples_card = ModernStatusCard(status_cards_frame, "Data Points", "0", "📊")
-        self.samples_card.pack(pady=5)
+        self.samples_card.pack(pady=3)
 
         self.runtime_card = ModernStatusCard(status_cards_frame, "Elapsed Time", "00:00:00", "⏱️")
-        self.runtime_card.pack(pady=5)
+        self.runtime_card.pack(pady=3)
 
         # Right Side (Live Channel Data or Graph) - Changed from COLORS['dark'] to transparent
         self.right_frame = ctk.CTkFrame(self.content_frame, corner_radius=15, fg_color="transparent")
@@ -188,6 +207,8 @@ class CL3000App(ctk.CTk):
             # Pass None instead of click handler to disable clicking
             display = ChannelDisplay(self.channels_container, i + 1, on_click=None)
             display.grid(row=i // 4, column=i % 4, padx=15, pady=15, sticky="nsew")
+            # Initialize with IDLE status
+            display.update_data(-9999.98, "IDLE")
             self.channel_displays.append(display)
         
         for i in range(rows):
@@ -204,7 +225,13 @@ class CL3000App(ctk.CTk):
             widget.destroy()
             
         # Create multi-channel graph widget directly in right_frame (no dark background)
-        self.current_graph_widget = MultiChannelGraphWidget(self.right_frame, self.out_channels, self.graph_data_manager, self)
+        self.current_graph_widget = MultiChannelGraphWidget(
+            self.right_frame, 
+            self.out_channels, 
+            self.graph_data_manager, 
+            self,
+            live_data_manager=self.live_data_manager
+        )
         
         # Set start time if logging is active
         if hasattr(self, 'logging_start_time') and self.logging_start_time:
@@ -249,6 +276,10 @@ class CL3000App(ctk.CTk):
 
     def update_channel_count(self, value):
         self.out_channels = int(value)
+        
+        # Update live data manager
+        self.live_data_manager.update_channel_count(self.out_channels)
+        
         if not self.viewing_graph:
             self.update_channel_displays()
         elif self.current_graph_widget:
@@ -261,6 +292,39 @@ class CL3000App(ctk.CTk):
             
         # Update logger's channel count, if needed
         self.logger.out_channels = self.out_channels
+
+    def _on_live_data_update(self, data):
+        """Callback for live data updates"""
+        # Update channel displays if in grid view
+        if not self.viewing_graph and hasattr(self, 'channel_displays'):
+            for i, display in enumerate(self.channel_displays):
+                if i < len(self.channel_displays):
+                    channel_num = i + 1
+                    if channel_num in data:
+                        value = data[channel_num]['value']
+                        judge = data[channel_num]['judge']
+                        display.update_data(value, judge)
+                    else:
+                        # Show IDLE when no data available (disconnected)
+                        display.update_data(-9999.98, "IDLE")
+        
+        # Update multi-channel graph if viewing it
+        elif self.viewing_graph and self.current_graph_widget:
+            try:
+                self.current_graph_widget.update_graph()
+            except Exception as e:
+                print(f"Error updating graph: {e}")
+
+    def _on_connection_change(self, connected):
+        """Callback for connection status changes"""
+        if connected:
+            self.connection_card.update_value("🟢 Connected", COLORS['success'])
+        else:
+            self.connection_card.update_value("🔴 Disconnected", COLORS['danger'])
+            # Set all channel displays to IDLE when disconnected
+            if hasattr(self, 'channel_displays'):
+                for display in self.channel_displays:
+                    display.update_data(-9999.98, "IDLE")
 
     def set_status(self, msg, color=COLORS['text']):
         self.status_card.update_value(msg, color)
@@ -313,11 +377,11 @@ class CL3000App(ctk.CTk):
             duration = self.duration_entry.get()
             duration = float(duration) if duration else None
         except ValueError:
-            self.set_status("Invalid Input", COLORS['danger'])
+            self.set_status("❌ Invalid Input", COLORS['danger'])
             return
 
         if self.logger.connect() != 0:
-            self.set_status("Connection Failed", COLORS['danger'])
+            self.set_status("❌ Connection Failed", COLORS['danger'])
             return
 
         # Clear existing graph data
@@ -345,15 +409,18 @@ class CL3000App(ctk.CTk):
         # Clear logging start time
         self.logging_start_time = None
         
-        # Reset channel displays if in grid view
-        if not self.viewing_graph and hasattr(self, 'channel_displays'):
-            for display in self.channel_displays:
-                display.update_data(-9999.98, "STANDBY")
-        
         # Reset button states properly
-        self.set_status("🟡 Idle", COLORS['warning'])
+        self.set_status("🟡 Logging Stopped", COLORS['warning'])
         self.enable_start_button()
 
     def _on_logging_stop(self):
-        self.set_status("Stopped", COLORS['warning'])
+        self.set_status("🟡 Logging Stopped", COLORS['warning'])
         self.enable_start_button()
+    
+    def on_closing(self):
+        """Handle application closing"""
+        # Stop live data reading
+        self.live_data_manager.stop_live_reading()
+        
+        # Close the application
+        self.quit()

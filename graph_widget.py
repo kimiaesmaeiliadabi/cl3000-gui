@@ -4,12 +4,14 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import numpy as np
+from datetime import datetime
 
 class MultiChannelGraphWidget(ctk.CTkFrame):
-    def __init__(self, parent, max_channels, graph_data_manager, app_ref=None):
+    def __init__(self, parent, max_channels, graph_data_manager, app_ref=None, live_data_manager=None):
         super().__init__(parent, corner_radius=15, fg_color=COLORS['card'])
         self.max_channels = max_channels
         self.graph_data_manager = graph_data_manager
+        self.live_data_manager = live_data_manager
         self.start_time = None
         self.first_data_time = None
         self.app_ref = app_ref
@@ -689,6 +691,45 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                 self.lines[channel_num].set_visible(True)
                 visible_channels += 1
                 timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
+
+                # If no logged data, try to get live data
+                if not timestamps and self.live_data_manager:
+                    live_data = self.live_data_manager.get_current_data(channel_num)
+                    if live_data and live_data['value'] != -9999.98:
+                        # Create a single point from live data
+                        current_time = datetime.now()
+                        if self.first_data_time is None:
+                            self.first_data_time = current_time
+                        
+                        # Create a single data point for live display
+                        relative_time = (current_time - self.first_data_time).total_seconds()
+                        if relative_time < 0:
+                            relative_time = 0
+                        
+                        self.lines[channel_num].set_data([relative_time], [live_data['value']])
+                        
+                        # Update judge markers for live data
+                        judge = live_data['judge']
+                        if judge == "GO":
+                            self.go_points[channel_num].set_offsets([[relative_time, live_data['value']]])
+                            self.hi_points[channel_num].set_offsets(np.empty((0, 2)))
+                            self.lo_points[channel_num].set_offsets(np.empty((0, 2)))
+                        elif judge == "HI":
+                            self.hi_points[channel_num].set_offsets([[relative_time, live_data['value']]])
+                            self.go_points[channel_num].set_offsets(np.empty((0, 2)))
+                            self.lo_points[channel_num].set_offsets(np.empty((0, 2)))
+                        elif judge == "LO":
+                            self.lo_points[channel_num].set_offsets([[relative_time, live_data['value']]])
+                            self.go_points[channel_num].set_offsets(np.empty((0, 2)))
+                            self.hi_points[channel_num].set_offsets(np.empty((0, 2)))
+                        else:
+                            self.go_points[channel_num].set_offsets(np.empty((0, 2)))
+                            self.hi_points[channel_num].set_offsets(np.empty((0, 2)))
+                            self.lo_points[channel_num].set_offsets(np.empty((0, 2)))
+                        
+                        any_data_updated = True
+                        data_points_found += 1
+                        continue
 
                 if not timestamps or not values:
                     print(f"DEBUG: Channel {channel_num} has no data")
