@@ -77,6 +77,7 @@ class CL3000Logger:
         last_display_update = 0
         last_row = None
         last_timestamp = None
+        last_sample_display_update = 0  # Track when we last updated display for a new sample
         
         # Take the first sample immediately at t=0
         row, timestamp = self.get_data_row()
@@ -112,18 +113,33 @@ class CL3000Logger:
                 last_row = row
                 last_timestamp = timestamp
                 
-                # Update display with new sample data
+                # Update display with new sample data, but throttle for very fast sample rates
                 if self.callback_update_display:
-                    self.callback_update_display(
-                        row,
-                        timestamp,
-                        self.total_samples,
-                        elapsed_time
-                    )
+                    # For very fast sample rates (< 0.5s), limit display updates to prevent overwhelming the UI
+                    if self.log_interval < 0.5:
+                        # Only update display every 0.5 seconds for fast sample rates
+                        if elapsed_time - last_sample_display_update >= 0.5:
+                            self.callback_update_display(
+                                row,
+                                timestamp,
+                                self.total_samples,
+                                elapsed_time
+                            )
+                            last_sample_display_update = elapsed_time
+                    else:
+                        # Normal update for slower sample rates
+                        self.callback_update_display(
+                            row,
+                            timestamp,
+                            self.total_samples,
+                            elapsed_time
+                        )
                 last_display_update = elapsed_time
             else:
                 # Not time for a sample yet, but update display every second to show elapsed time
-                if elapsed_time - last_display_update >= 1.0 and self.callback_update_display and last_row:
+                # For very fast sample rates, we need to ensure elapsed time still updates
+                update_interval = 0.5 if self.log_interval < 0.5 else 1.0
+                if elapsed_time - last_display_update >= update_interval and self.callback_update_display and last_row:
                     self.callback_update_display(
                         last_row,  # Use last sample data
                         last_timestamp,

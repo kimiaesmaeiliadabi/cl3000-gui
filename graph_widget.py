@@ -18,6 +18,8 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         self.auto_update_enabled = True
         self.after_id = None
         self._update_in_progress = False  # Prevent concurrent updates
+        self._last_update_time = 0  # Track last update time for throttling
+        self._min_update_interval = 0.1  # Minimum time between updates (100ms)
         
         # Channel colors (8 distinct colors)
         self.channel_colors = [
@@ -362,8 +364,9 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         # Cancel existing timer if any
         self.stop_auto_update()
         
-        # Start new timer
-        self.after_id = self.after(500, self.update_graph_with_timer)
+        # Start new timer with a shorter interval for more responsive updates
+        # This helps with very fast sample rates
+        self.after_id = self.after(200, self.update_graph_with_timer)
         print(f"Auto-update timer started with ID: {self.after_id}")
     
     def stop_auto_update(self):
@@ -390,7 +393,7 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         
         # Schedule next update if auto-update is still enabled
         if self.auto_update_enabled:
-            self.after_id = self.after(500, self.update_graph_with_timer)
+            self.after_id = self.after(200, self.update_graph_with_timer)
     
     def go_back(self):
         """Return to channel grid view"""
@@ -654,6 +657,13 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         """Update the graph with new data from all channels"""
         if self._update_in_progress:  # Prevent concurrent updates
             return
+            
+        # Throttle updates to prevent overwhelming the system with very fast sample rates
+        import time
+        current_time = time.time()
+        if current_time - self._last_update_time < self._min_update_interval:
+            return  # Skip this update if too soon since last update
+        self._last_update_time = current_time
             
         try:
             any_data_updated = False

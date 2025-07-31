@@ -134,12 +134,6 @@ class CL3000App(ctk.CTk):
         status_cards_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
         status_cards_frame.pack(fill="x", pady=(5, 0))
 
-        self.status_card = ModernStatusCard(status_cards_frame, "Logging Status", "🟡 IDLE", "📝")
-        self.status_card.pack(pady=3)
-
-        self.connection_card = ModernStatusCard(status_cards_frame, "Device Status", "🔴 Disconnected", "🔌")
-        self.connection_card.pack(pady=3)
-
         self.samples_card = ModernStatusCard(status_cards_frame, "Data Points", "0", "📊")
         self.samples_card.pack(pady=3)
 
@@ -149,6 +143,12 @@ class CL3000App(ctk.CTk):
         # Right Side (Live Channel Data or Graph) - Changed from COLORS['dark'] to transparent
         self.right_frame = ctk.CTkFrame(self.content_frame, corner_radius=15, fg_color="transparent")
         self.right_frame.pack(side="right", fill="both", expand=True)
+
+        self.status_card = ModernStatusCard(status_cards_frame, "Logging Status", "🟡 IDLE", "📝")
+        self.status_card.pack(pady=3)
+
+        self.connection_card = ModernStatusCard(status_cards_frame, "Device Status", "🔴 Disconnected", "🔌")
+        self.connection_card.pack(pady=3)
 
         # Initialize with channel grid view
         self.setup_channel_grid()
@@ -224,26 +224,44 @@ class CL3000App(ctk.CTk):
         for widget in self.right_frame.winfo_children():
             widget.destroy()
             
-        # Create multi-channel graph widget directly in right_frame (no dark background)
-        self.current_graph_widget = MultiChannelGraphWidget(
-            self.right_frame, 
-            self.out_channels, 
-            self.graph_data_manager, 
-            self,
-            live_data_manager=self.live_data_manager
-        )
-        
-        # Set start time if logging is active
-        if hasattr(self, 'logging_start_time') and self.logging_start_time:
-            self.current_graph_widget.set_start_time(self.logging_start_time)
-        
-        self.current_graph_widget.pack(fill="both", expand=True)
-        
-        self.current_graph_widget.update_graph()
-
-        self.viewing_graph = True
-        
-        print("Multi-channel graph view active")
+        try:
+            # Create multi-channel graph widget directly in right_frame (no dark background)
+            self.current_graph_widget = MultiChannelGraphWidget(
+                self.right_frame, 
+                self.out_channels, 
+                self.graph_data_manager, 
+                self,
+                live_data_manager=self.live_data_manager
+            )
+            
+            # Set start time if logging is active
+            if hasattr(self, 'logging_start_time') and self.logging_start_time:
+                self.current_graph_widget.set_start_time(self.logging_start_time)
+            
+            self.current_graph_widget.pack(fill="both", expand=True)
+            
+            # Ensure the widget is properly initialized before updating
+            self.current_graph_widget.update_idletasks()
+            
+            # Initial graph update
+            if hasattr(self.current_graph_widget, 'update_graph'):
+                self.current_graph_widget.update_graph()
+            
+            # Set viewing_graph flag only after successful initialization
+            self.viewing_graph = True
+            
+            print("Multi-channel graph view active")
+            
+        except Exception as e:
+            print(f"Error creating graph widget: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback: show error message and stay in grid view
+            error_label = ctk.CTkLabel(self.right_frame, text=f"Error loading graph: {str(e)}", 
+                                     text_color=COLORS['danger'])
+            error_label.pack(expand=True)
+            self.viewing_graph = False
+            self.current_graph_widget = None
         
     def show_channel_grid(self):
         """Switch back to channel grid view"""
@@ -367,9 +385,19 @@ class CL3000App(ctk.CTk):
         elif self.viewing_graph and self.current_graph_widget:
             print("Updating multi-channel graph")
             try:
-                self.current_graph_widget.update_graph()
+                # Check if the graph widget is properly initialized and ready
+                if hasattr(self.current_graph_widget, 'update_graph') and callable(self.current_graph_widget.update_graph):
+                    # Add a small delay to prevent overwhelming the graph with very fast updates
+                    # This is especially important for sample rates under 0.5 seconds
+                    # Use a longer delay for very fast sample rates to prevent conflicts
+                    delay = 50 if hasattr(self, 'logger') and hasattr(self.logger, 'log_interval') and self.logger.log_interval < 0.5 else 10
+                    self.after(delay, self.current_graph_widget.update_graph)
+                else:
+                    print("Warning: Graph widget not properly initialized")
             except Exception as e:
                 print(f"Error updating graph: {e}")
+                import traceback
+                traceback.print_exc()
 
     def start_logging(self):
         try:
