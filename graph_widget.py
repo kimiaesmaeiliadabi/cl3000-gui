@@ -217,26 +217,6 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         # Start auto-update timer immediately
         self.start_auto_update()
     
-    def recalculate_first_data_time(self):
-        """Recalculate first_data_time based on currently selected channels"""
-        print("Recalculating first_data_time...")
-        first_times = []
-        
-        for channel_num in range(1, self.max_channels + 1):
-            if self.selected_channels.get(channel_num, False):
-                timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
-                valid_times = [t for t, v in zip(timestamps, values) if v is not None and v != -9999.98 and str(v).lower() != 'nan']
-                if valid_times:
-                    first_times.append(valid_times[0])
-                    print(f"Channel {channel_num} first time: {valid_times[0]}")
-        
-        if first_times:
-            old_first_time = self.first_data_time
-            self.first_data_time = min(first_times)
-            print(f"Updated first_data_time from {old_first_time} to {self.first_data_time}")
-        else:
-            print("No valid times found for selected channels")
-    
     def select_all_channels(self):
         """Select all channel checkboxes"""
         print("Selecting all channels")
@@ -288,26 +268,59 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
         """Toggle visibility of a specific channel"""
         print(f"DEBUG: toggle_channel called for channel {channel_num}")
         
-        # Get the actual checkbox state
+        # Get the actual checkbox state and ensure it's properly synchronized
         if channel_num in self.channel_checkboxes:
             checkbox_state = self.channel_checkboxes[channel_num].get()
             self.selected_channels[channel_num] = bool(checkbox_state)
-            print(f"Channel {channel_num} {'enabled' if self.selected_channels[channel_num] else 'disabled'}")
+            print(f"Channel {channel_num} {'enabled' if self.selected_channels[channel_num] else 'disabled'} (checkbox state: {checkbox_state})")
         else:
             # Fallback: toggle the stored state
             self.selected_channels[channel_num] = not self.selected_channels[channel_num]
             print(f"Channel {channel_num} {'enabled' if self.selected_channels[channel_num] else 'disabled'} (fallback)")
         
-        # Special handling for OUT1 - if it's being disabled, recalculate first_data_time
-        if channel_num == 1 and not self.selected_channels[channel_num]:
-            print(f"OUT1 disabled - recalculating first_data_time")
-            self.recalculate_first_data_time()
+        # Debug: Print current state of all channels
+        print(f"Current selected channels: {[i for i in range(1, self.max_channels + 1) if self.selected_channels.get(i, False)]}")
+        print(f"Current first_data_time: {self.first_data_time}")
+        
+        # Force recalculation of first_data_time when any channel is toggled
+        # This ensures we don't depend on any specific channel
+        self._recalculate_first_data_time()
+        
+        # Additional debugging for OUT1 specifically
+        if channel_num == 1:
+            print(f"OUT1 DEBUG: selected_channels[1] = {self.selected_channels.get(1, False)}")
+            print(f"OUT1 DEBUG: checkbox state = {self.channel_checkboxes[1].get() if 1 in self.channel_checkboxes else 'N/A'}")
+            print(f"OUT1 DEBUG: first_data_time after recalculation = {self.first_data_time}")
         
         self.update_legend()
         # Force an immediate graph update to show the change
         self.update_graph()
         print(f"Channel {channel_num} toggle complete")
+    
+    def _recalculate_first_data_time(self):
+        """Recalculate first_data_time based on currently selected channels"""
+        print("DEBUG: Recalculating first_data_time...")
+        first_times = []
         
+        for channel_num in range(1, self.max_channels + 1):
+            if self.selected_channels.get(channel_num, False):
+                timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
+                valid_times = [t for t, v in zip(timestamps, values) if v is not None and v != -9999.98 and str(v).lower() != 'nan']
+                if valid_times:
+                    first_times.append(valid_times[0])
+                    print(f"DEBUG: Channel {channel_num} contributes first time: {valid_times[0]}")
+        
+        if first_times:
+            new_first_time = min(first_times)
+            if self.first_data_time != new_first_time:
+                print(f"DEBUG: Updating first_data_time from {self.first_data_time} to {new_first_time}")
+                self.first_data_time = new_first_time
+            else:
+                print(f"DEBUG: first_data_time unchanged: {self.first_data_time}")
+        else:
+            print("DEBUG: No valid first times found, setting first_data_time to None")
+            self.first_data_time = None
+    
     def update_legend(self):
         """Update the legend to show only selected channels"""
         handles = []
@@ -379,8 +392,9 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
     
     def go_back(self):
         """Return to channel grid view"""
-        # Cancel auto-update timer
-        self.stop_auto_update()
+        # Don't stop auto-update timer - let it continue running
+        # The timer should continue updating the graph even when not visible
+        # This prevents interference with data logging
         
         if self.app_ref:
             self.app_ref.show_channel_grid()
@@ -430,6 +444,23 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
             all_times = []
             all_values = []
             
+            # First, recalculate first_data_time based on currently selected channels
+            # (same logic as in update_graph)
+            first_times = []
+            for channel_num in range(1, self.max_channels + 1):
+                if self.selected_channels.get(channel_num, False):
+                    timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
+                    valid_times = [t for t, v in zip(timestamps, values) if v is not None and v != -9999.98 and str(v).lower() != 'nan']
+                    if valid_times:
+                        first_times.append(valid_times[0])
+            
+            # Update first_data_time if we have valid selected channels
+            if first_times:
+                new_first_time = min(first_times)
+                if self.first_data_time != new_first_time:
+                    self.first_data_time = new_first_time
+                    print(f"Auto_fit: Updated first_data_time to: {self.first_data_time}")
+            
             # Collect data from all selected channels
             for channel_num in range(1, self.max_channels + 1):
                 if not self.selected_channels.get(channel_num, False):
@@ -441,22 +472,25 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                     valid_data = [(t, v) for t, v in zip(timestamps, values) if v != -9999.98 and v is not None]
                     if valid_data:
                         plot_times, plot_values = zip(*valid_data)
-                        if self.first_data_time is None and plot_times:
-                            self.first_data_time = plot_times[0]
-                            print(f"Setting first data time to: {self.first_data_time}")
                         
-                        if self.first_data_time:
-                            try:
-                                relative_times = [(t - self.first_data_time).total_seconds() for t in plot_times]
-                                # Handle negative times by adding offset
-                                if relative_times and min(relative_times) < 0:
-                                    time_offset = abs(min(relative_times))
-                                    relative_times = [t + time_offset for t in relative_times]
-                                
-                                all_times.extend(relative_times)
-                                all_values.extend(plot_values)
-                            except Exception as e:
-                                print(f"Error processing times for channel {channel_num}: {e}")
+                        # Use the same fallback logic as update_graph
+                        reference_time = self.first_data_time
+                        if reference_time is None:
+                            # Fallback: use this channel's first timestamp
+                            reference_time = plot_times[0]
+                            print(f"Auto_fit: Channel {channel_num} using fallback reference time {reference_time}")
+                        
+                        try:
+                            relative_times = [(t - reference_time).total_seconds() for t in plot_times]
+                            # Handle negative times by adding offset
+                            if relative_times and min(relative_times) < 0:
+                                time_offset = abs(min(relative_times))
+                                relative_times = [t + time_offset for t in relative_times]
+                            
+                            all_times.extend(relative_times)
+                            all_values.extend(plot_values)
+                        except Exception as e:
+                            print(f"Error processing times for channel {channel_num}: {e}")
             
             if all_times and all_values:
                 time_min, time_max = min(all_times), max(all_times)
@@ -626,22 +660,11 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
 
             # Get list of selected channels for debugging
             selected_list = [i for i in range(1, self.max_channels + 1) if self.selected_channels.get(i, False)]
+            print(f"DEBUG: update_graph - selected channels: {selected_list}")
             
             # Always recalculate first_data_time based on currently selected channels
             # This ensures we don't depend on OUT1 or any specific channel
-            first_times = []
-            for channel_num in selected_list:
-                timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
-                valid_times = [t for t, v in zip(timestamps, values) if v is not None and v != -9999.98 and str(v).lower() != 'nan']
-                if valid_times:
-                    first_times.append(valid_times[0])
-            
-            # Update first_data_time if we have valid selected channels
-            if first_times:
-                new_first_time = min(first_times)
-                if self.first_data_time != new_first_time:
-                    self.first_data_time = new_first_time
-                    print(f"Updated first_data_time to: {self.first_data_time}")
+            self._recalculate_first_data_time()
 
             for channel_num in range(1, self.max_channels + 1):
                 if not self.selected_channels.get(channel_num, False):
@@ -653,6 +676,13 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                     # Make sure the line is not visible
                     self.lines[channel_num].set_visible(False)
                     any_data_updated = True
+                    print(f"DEBUG: Channel {channel_num} is not selected, hiding it")
+                    
+                    # Additional debugging for OUT1
+                    if channel_num == 1:
+                        print(f"OUT1 HIDE DEBUG: selected_channels[1] = {self.selected_channels.get(1, False)}")
+                        print(f"OUT1 HIDE DEBUG: checkbox state = {self.channel_checkboxes[1].get() if 1 in self.channel_checkboxes else 'N/A'}")
+                    
                     continue
 
                 # Make sure the line is visible for selected channels
@@ -661,6 +691,7 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                 timestamps, values, judges = self.graph_data_manager.get_channel_data(channel_num)
 
                 if not timestamps or not values:
+                    print(f"DEBUG: Channel {channel_num} has no data")
                     continue
 
                 # Filter valid data more carefully
@@ -674,21 +705,28 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                             continue
 
                 if not valid_data:
+                    print(f"DEBUG: Channel {channel_num} has no valid data")
                     continue
 
                 plot_times, plot_values, plot_judges = zip(*valid_data)
                 data_points_found += len(plot_values)
+                print(f"DEBUG: Channel {channel_num} has {len(plot_values)} valid data points")
 
                 # Use the global first_data_time that's based on selected channels
-                if self.first_data_time is None:
-                    continue
+                # If first_data_time is None, use this channel's first timestamp as fallback
+                reference_time = self.first_data_time
+                if reference_time is None:
+                    # Fallback: use this channel's first timestamp
+                    reference_time = plot_times[0]
+                    print(f"Channel {channel_num}: Using fallback reference time {reference_time}")
 
                 # Convert to relative times
                 try:
-                    relative_times = [(t - self.first_data_time).total_seconds() for t in plot_times]
+                    relative_times = [(t - reference_time).total_seconds() for t in plot_times]
                     if relative_times and min(relative_times) < 0:
                         time_offset = abs(min(relative_times))
                         relative_times = [t + time_offset for t in relative_times]
+                    print(f"DEBUG: Channel {channel_num} calculated {len(relative_times)} relative times")
                 except Exception as e:
                     print(f"Error calculating relative times for channel {channel_num}: {e}")
                     continue
@@ -697,8 +735,9 @@ class MultiChannelGraphWidget(ctk.CTkFrame):
                 if len(relative_times) > 3:
                     try:
                         from scipy.interpolate import make_interp_spline
-                        import numpy as np
-                        xnew = np.linspace(min(relative_times), max(relative_times), 300)
+                        # Use global np import, not local
+                        import numpy as np_local
+                        xnew = np_local.linspace(min(relative_times), max(relative_times), 300)
                         spl = make_interp_spline(relative_times, plot_values, k=3)
                         y_smooth = spl(xnew)
                         self.lines[channel_num].set_data(xnew, y_smooth)
